@@ -1,9 +1,3 @@
-###### Your ID ######
-# ID1: 123456789
-# ID2: 987654321
-#####################
-
-# imports 
 import numpy as np
 import pandas as pd
 
@@ -325,8 +319,17 @@ def create_square_features(df):
     ###########################################################################
     # TODO: Implement the function to add polynomial features                 #
     ###########################################################################
-    pass
-    ###########################################################################
+    for col in df_poly:
+        df_poly[f"{col}^2"] = df[col] ** 2
+    
+    columns = df_poly.columns
+    for i in range(len(columns)):
+        for j in range(i + 1, len(columns)):
+            col1 = columns[i]
+            col2 = columns[j]
+            df_poly[f"{col1}*{col2}"] = df[col1] * df[col2]
+    
+    #########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
     return df_poly

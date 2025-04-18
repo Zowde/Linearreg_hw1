@@ -1,25 +1,6 @@
 import numpy as np
 import pandas as pd
 
-def get_x_roof(X):
-  big_sigma = X.sum()
-
-  nn = X.size
-  x_roof = (1 / nn) * big_sigma
-  return x_roof
-
-def get_little_sigma(X, x_roof=None):
-  if x_roof is None:
-    x_roof = get_x_roof(X)
-  
-  inner_power = X - x_roof
-  inner_big_sigma = np.power(inner_power, 2)
-  big_sigma = inner_big_sigma.sum()
-
-  nn = X.size
-  inner_root = (1 / nn) * big_sigma
-  little_sigma = np.sqrt(inner_root)
-  return little_sigma
 
 def preprocess(X,y):
     """
@@ -37,10 +18,13 @@ def preprocess(X,y):
     # TODO: Implement the normalization function.                             #
     ###########################################################################
     
-    x_roof = get_x_roof(X)
-    little_sigma = get_little_sigma(X, x_roof=x_roof)
-    
-    X = (X - x_roof) / little_sigma
+    avg_x = np.average(X, axis=0)
+    std_X = np.std(X, axis=0)
+    X = (X - avg_x) / std_X
+
+    avg_y = np.average(y)
+    std_y = np.std(y)
+    y = (y - avg_y) / std_y
     
     ###########################################################################
     #                             END OF YOUR CODE                            #
@@ -88,14 +72,13 @@ def compute_loss(X, y, theta):
     # TODO: Implement the MSE loss function.                                  #
     ###########################################################################
     
-    X_T = X.T
-    predictions = np.dot(theta, X_T)
-    errors = predictions - y
-    inner_big_sigma = np.power(errors, 2)
+    y_pred = X @ theta
+    pred_error = y_pred - y
+    inner_big_sigma = np.power(pred_error, 2)
     big_sigma = inner_big_sigma.sum()
 
     n = X.shape[0]
-    J = (1 / (2 * n)) * big_sigma  
+    J = big_sigma / (2 * n) 
     
     ###########################################################################
     #                             END OF YOUR CODE                            #
@@ -128,9 +111,10 @@ def gradient_descent(X, y, theta, eta, num_iters):
     ###########################################################################
     # TODO: Implement the gradient descent optimization algorithm.            #
     ###########################################################################
+    
     for i in range(num_iters) :
-        y_pred = X @ theta # compute the predicted values (its vector)
-        pred_error = (y_pred - y) # each entry in the vector equivalent to (thetaT - yi)
+        y_pred = X @ theta  # compute the predicted values (its vector)
+        pred_error = (y_pred - y)  # each entry in the vector equivalent to (thetaT - yi)
         inner_big_sigma = X.T @ pred_error
 
         # because on each entry in the gradient we should multiply the pred_error in the feature of the instance
@@ -174,7 +158,7 @@ def compute_pinv(X, y):
     XT = X.T
     XT_X = XT @ X
     XT_X_inv = np.linalg.inv(XT_X)  # If XT_X is invertible
-    pinv_theta = XT_X_inv @ X.T @ y
+    pinv_theta = XT_X_inv @ XT @ y
     
     ###########################################################################
     #                             END OF YOUR CODE                            #
@@ -206,10 +190,13 @@ def gradient_descent_stop_condition(X, y, theta, eta, max_iter, epsilon=1e-8):
     # TODO: Implement the gradient descent with stop condition optimization algorithm.  #
     ###########################################################################
     
-    for i in range(max_iter):
+    theta, J = gradient_descent(X, y, theta, eta, 1)
+    J_history += J  # store loss value
+
+    for i in range(1, max_iter):
         theta, J = gradient_descent(X, y, theta, eta, 1)
         J_history += J  # store loss value
-        if (i > 1) and (abs(J_history[-1] - J_history[-2]) < epsilon):
+        if abs(J_history[-1] - J_history[-2]) < epsilon:
             break
     
     ###########################################################################
@@ -242,7 +229,7 @@ def find_best_learning_rate(X_train, y_train, X_val, y_val, iterations):
     # TODO: Implement the function and find the best eta value.             #
     ###########################################################################
     
-    theta = np.random.random(size=2)
+    theta = np.random.random(size=X_train.shape[-1])
     for eta in etas:
         new_theta, J_history = gradient_descent(X_train, y_train, theta, eta, iterations)
 
@@ -279,7 +266,6 @@ def forward_feature_selection(X_train, y_train, X_val, y_val, best_eta, iteratio
     
     X_train = apply_bias_trick(X_train)
     X_val = apply_bias_trick(X_val)
-    shape = X_train.shape[1]
     
     max_features = 5
     features_list = list(range(1, X_train.shape[1]))
@@ -295,8 +281,10 @@ def forward_feature_selection(X_train, y_train, X_val, y_val, best_eta, iteratio
             losses[j] = compute_loss(partly_X_val, y_val, theta_test)
         
         best_j = min(losses, key=losses.get)
-        selected_features.append(best_j - 1)
+        selected_features.append(best_j)
         features_list.remove(best_j)
+    
+    selected_features = [_ - 1 for _ in selected_features]
     
     ###########################################################################
     #                             END OF YOUR CODE                            #
@@ -319,15 +307,27 @@ def create_square_features(df):
     ###########################################################################
     # TODO: Implement the function to add polynomial features                 #
     ###########################################################################
-    for col in df_poly:
-        df_poly[f"{col}^2"] = df[col] ** 2
-    
-    columns = df_poly.columns
+
+    # Square features
+    columns = df.columns
+
+    squares = np.power(df_poly, 2)
+    squares.columns = [f"{col}^2" for col in columns]
+
+    # Product pairs features
+    product_list = []
+
     for i in range(len(columns)):
         for j in range(i + 1, len(columns)):
-            col1 = columns[i]
-            col2 = columns[j]
-            df_poly[f"{col1}*{col2}"] = df[col1] * df[col2]
+            c1, c2 = columns[i], columns[j]
+            product = df_poly[c1] * df_poly[c2]
+            product.name = f"{c1}*{c2}"
+            product_list.append(product)
+    
+    product_features = pd.concat(product_list, axis=1)
+    
+    # Combine all parts
+    df_poly = pd.concat([df_poly, squares, product_features], axis=1)
     
     #########################################################################
     #                             END OF YOUR CODE                            #
